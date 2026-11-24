@@ -8,6 +8,7 @@ import {
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -16,6 +17,11 @@ const PUBLIC_DIR = join(__dirname, 'public');
 const MAX_CONCURRENT = Number(process.env.MAX_CONCURRENT || 2);
 const JOB_TIMEOUT_MS = Number(process.env.JOB_TIMEOUT_MS || 5 * 60 * 1000);
 const MAX_FILESIZE = process.env.MAX_FILESIZE || '200M';
+// Your download server (where yt-dlp + ffmpeg run). Edit this if the IP/port changes.
+const HOME_SERVER = 'http://217.174.153.234:3000';
+// Render sets RENDER=true automatically. On Render this app only serves the
+// page and forwards /api/download to HOME_SERVER; everywhere else it runs yt-dlp itself.
+const BACKEND_URL = process.env.RENDER ? HOME_SERVER : '';
 
 // Start with a clean temp dir
 rmSync(TMP, { recursive: true, force: true });
@@ -87,6 +93,35 @@ app.post('/api/download', limiter, async (req, res) => {
   if (!hostAllowed(kind, parsed.hostname)) {
     return res.status(400).json({ error: `Host not allowed for ${kind}` });
   }
+  // --- proxy mode (Render -> your server) ---
+  if (BACKEND_URL) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), JOB_TIMEOUT_MS + 30000);
+    res.on('close', () => { clearTimeout(timer); ctrl.abort(); });
+    try {
+      const r = await fetch(`${BACKEND_URL}/api/download`, {
+        method: 'POST',
+        // pass the visitor's IP so the home server's rate limit is per visitor, not per Render
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': req.ip },
+        body: JSON.stringify({ url, kind }),
+        signal: ctrl.signal
+      });
+      res.status(r.status);
+      for (const h of ['content-type', 'content-length', 'content-disposition']) {
+        const v = r.headers.get(h);
+        if (v) res.setHeader(h, v);
+      }
+      if (!r.body) return res.end();
+      Readable.fromWeb(r.body).on('error', () => res.destroy()).pipe(res);
+    } catch (err) {
+      console.error('proxy failed:', err.message);
+      if (!res.headersSent) res.status(502).json({ error: 'Could not reach the download server.' });
+      else res.destroy();
+    }
+    return;
+  }
+
+  // --- direct mode (this machine runs yt-dlp) ---
   if (active >= MAX_CONCURRENT) {
     return res.status(503).json({ error: 'Server is busy. Please try again in a moment.' });
   }
