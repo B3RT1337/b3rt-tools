@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: b3rt-tools
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
