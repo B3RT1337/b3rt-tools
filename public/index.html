@@ -830,8 +830,8 @@ function validUrl(value) {
 }
 
 // If the front-end is hosted separately from the backend, set
-// window.B3RT_API_BASE = 'https://your-backend.example.com' before this script.
-const API_BASE = (window.B3RT_API_BASE || '').replace(/\/$/, '');
+B3RT_API_BASE = 'http://217.174.153.234:3000' before this script.
+const API_BASE = (B3RT_API_BASE || '').replace(/\/$/, '');
 
 async function requestDownload(kind, url) {
     const statusId = kind + 'Status';
