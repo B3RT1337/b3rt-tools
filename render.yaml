@@ -3,4 +3,12 @@ services:
     name: b3rt-tools
     runtime: docker
     plan: free
+    region: oregon
+    branch: main
     healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: MAX_CONCURRENT
+        value: "1"
+      - key: MAX_FILESIZE
+        value: 100M
